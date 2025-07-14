@@ -37,13 +37,21 @@ public class UserBotClient {
 
     private String selfId;
 
+    public UserBotClient(String token) {
+        this(token, null);
+    }
+
     public UserBotClient(String token, String webhook_url) {
         this.gatewayClient = new GatewayClient(token);
         this.dispatcher = new EventDispatcher();
         this.messageSender = new MessageSender(token);
         this.dmService = new DmAndChannelService(token);
         this.voiceClient = new VoiceClient(this);
-        this.webhookClient = WebhookClient.fromUrl(webhook_url);
+        if (webhook_url != null && !webhook_url.isBlank()) {
+            this.webhookClient = WebhookClient.fromUrl(webhook_url);
+        } else {
+            this.webhookClient = null;
+        }
 
         dispatcher.registerParser("READY", ReadyEvent::new);
         this.onEvent(ReadyEvent.class)
