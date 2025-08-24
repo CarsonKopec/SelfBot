@@ -1,0 +1,12 @@
+[
+  { "className": "commands.BlacklistCommand" },
+  { "className": "commands.ClearCommand" },
+  { "className": "commands.JoinCommand" },
+  { "className": "commands.LeaveCommand" },
+  { "className": "commands.PauseCommand" },
+  { "className": "commands.PingCommand" },
+  { "className": "commands.PlayCommand" },
+  { "className": "commands.QueueCommand" },
+  { "className": "commands.SkipCommand" },
+  { "className": "commands.StopCommand" }
+]

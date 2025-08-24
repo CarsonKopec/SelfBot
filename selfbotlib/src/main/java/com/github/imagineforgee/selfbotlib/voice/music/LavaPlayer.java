@@ -1,6 +1,12 @@
-package com.github.imagineforgee.selfbotlib.voice;
+package com.github.imagineforgee.selfbotlib.voice.music;
 
 import com.github.imagineforgee.selfbotlib.client.VoiceClient;
+import com.github.imagineforgee.selfbotlib.commands.CommandContext;
+import com.github.imagineforgee.selfbotlib.voice.OpusUdpStreamer;
+import com.github.imagineforgee.selfbotlib.voice.SpeakingFlag;
+import com.github.imagineforgee.selfbotlib.voice.VoiceMode;
+import com.github.imagineforgee.selfbotlib.voice.music.track.TrackQueue;
+import com.github.imagineforgee.selfbotlib.voice.music.track.TrackScheduler;
 import com.sedmelluq.discord.lavaplayer.format.StandardAudioDataFormats;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
@@ -14,12 +20,15 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.Queue;
 
-public class LavaPlayer implements VoiceMode {
+public class LavaPlayer implements MusicMode {
     private final AudioPlayerManager playerManager;
     private final com.sedmelluq.discord.lavaplayer.player.AudioPlayer lavaPlayer;
     private OpusUdpStreamer streamer;
     private VoiceClient voiceClient;
+    private final TrackQueue queue;
+    private final TrackScheduler scheduler;
 
     public LavaPlayer(OpusUdpStreamer streamer) {
         this.playerManager = new DefaultAudioPlayerManager();
@@ -27,6 +36,9 @@ public class LavaPlayer implements VoiceMode {
         this.playerManager.registerSourceManager(new YoutubeAudioSourceManager(true));
         this.lavaPlayer = playerManager.createPlayer();
         this.streamer = streamer;
+        this.queue = new TrackQueue();
+        this.scheduler = new TrackScheduler(lavaPlayer, queue, this);
+        lavaPlayer.addListener(scheduler);
     }
 
     @Override
@@ -38,24 +50,23 @@ public class LavaPlayer implements VoiceMode {
     }
 
     @Override
-    public void start(String url) {
+    public void start(String url, CommandContext ctx) {
         System.out.println("[Voice] Loading track: " + url);
         stopStreaming();
-
-        playerManager.loadItem(url, new AudioLoadResultHandler() {
+        String key = ctx.getGuildId() != null ? ctx.getGuildId() : "group:" + ctx.getChannelId();
+        playerManager.loadItemOrdered(key, url, new AudioLoadResultHandler() {
             @Override
             public void trackLoaded(AudioTrack track) {
                 System.out.println("[Voice] Track loaded successfully: " + track.getInfo().title);
-                lavaPlayer.playTrack(track);
-                startAudioStream();
+                scheduler.queue(track);
             }
 
             @Override
             public void playlistLoaded(AudioPlaylist playlist) {
                 if (!playlist.getTracks().isEmpty()) {
-                    AudioTrack firstTrack = playlist.getTracks().get(0);
-                    lavaPlayer.playTrack(firstTrack);
-                    startAudioStream();
+                    for (AudioTrack track : playlist.getTracks()) {
+                        scheduler.queue(track);
+                    }
                 }
             }
 
@@ -71,7 +82,7 @@ public class LavaPlayer implements VoiceMode {
         });
     }
 
-    private void startAudioStream() {
+    public void startAudioStream() {
         System.out.println("[Voice] Starting audio stream");
 
         OpusUdpStreamer udpStreamer = voiceClient.getUdpStreamer();
@@ -103,6 +114,21 @@ public class LavaPlayer implements VoiceMode {
         lavaPlayer.stopTrack();
         stopStreaming();
         voiceClient.setSpeaking();
+    }
+
+    @Override
+    public void skip() {
+        scheduler.skip();
+    }
+
+    @Override
+    public void clear() {
+		queue.clear();
+    }
+
+    @Override
+    public Queue<AudioTrack> getQueue() {
+		return queue.getSnapshot();
     }
 
     @Override

@@ -11,9 +11,7 @@ import com.github.imagineforgee.selfbotlib.http.DmAndChannelService;
 import com.github.imagineforgee.selfbotlib.http.MessageSender;
 import com.github.imagineforgee.selfbotlib.util.VoiceStateRegistry;
 import com.github.imagineforgee.selfbotlib.webhook.WebhookClient;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -58,8 +56,10 @@ public class UserBotClient {
                 .subscribe(evt -> {
                     this.selfId = evt.getUserId();
                     System.out.println("[READY] Bot user ID set: " + selfId);
+                    JsonObject data = evt.getData();
 
-                    JsonArray guilds = evt.getData().getAsJsonArray("guilds");
+                    JsonArray guilds = data.getAsJsonArray("guilds");
+                    JsonArray privateChannels = data.getAsJsonArray("private_channels");
 
                     for (JsonElement el : guilds) {
                         JsonObject guildData = el.getAsJsonObject();
@@ -69,6 +69,17 @@ public class UserBotClient {
                         simulatedPayload.add("d", guildData);
 
                         dispatcher.dispatch(simulatedPayload);
+                    }
+
+                    for (JsonElement el : privateChannels) {
+                        JsonObject channel = el.getAsJsonObject();
+                        int type = channel.get("type").getAsInt();
+                        if (type == 1 || type == 3) {
+                            JsonObject simulatedPayload = new JsonObject();
+                            simulatedPayload.addProperty("t", "PRIVATE_CHANNEL_CREATE");
+                            simulatedPayload.add("d", channel);
+                            dispatcher.dispatch(simulatedPayload);
+                        }
                     }
                 });
 
@@ -83,12 +94,24 @@ public class UserBotClient {
                         if (vs.has("user_id") && vs.has("channel_id") && !vs.get("channel_id").isJsonNull()) {
                             String userId = vs.get("user_id").getAsString();
                             String channelId = vs.get("channel_id").getAsString();
-
                             VoiceStateRegistry.update(userId, channelId);
                             System.out.printf("[VOICE_STATE] Updated user %s in channel %s%n", userId, channelId);
                         }
                     }
                 });
+
+        dispatcher.registerParser("PRIVATE_CHANNEL_CREATE", DmChannelCreateEvent::new);
+//        this.onEvent(DmChannelCreateEvent.class)
+//                .subscribe(evt -> {
+//                    JsonArray data = evt.getRecipients();
+//					for (JsonElement el : data) {
+//                        JsonObject user = el.getAsJsonObject();
+//                        String userId = user.get("id").getAsString();
+//                        String channelId = evt.getChannelId();
+//
+//                        VoiceStateRegistry.update(userId, channelId);
+//                    }
+//        		});
 
         dispatcher.registerParser("MESSAGE_CREATE", MessageCreateEvent::new);
         dispatcher.registerParser("COMMAND_EXECUTE", CommandExecuteEvent::new);
@@ -97,9 +120,17 @@ public class UserBotClient {
                 .subscribe(evt -> {
                     String userId = evt.getUserId();
                     String channelId = evt.getChannelId();
-                    System.out.printf("[VOICE_STATE_UPDATE] %s -> %s%n", userId, channelId);
+                    String guildId = evt.getGuildId();
+
+                    if (guildId == null || guildId.isEmpty()) {
+                        System.out.printf("[VOICE_STATE_UPDATE][Group DM] User %s moved to channel %s%n", userId, channelId);
+                    } else {
+                        System.out.printf("[VOICE_STATE_UPDATE][Guild %s] User %s moved to channel %s%n", guildId, userId, channelId);
+                    }
+
                     VoiceStateRegistry.update(userId, channelId);
                 });
+
 
         dispatcher.registerParser("VOICE_SERVER_UPDATE", VoiceServerUpdateEvent::new);
 
@@ -171,6 +202,34 @@ public class UserBotClient {
         }
     }
 
+    public Mono<JsonObject> getChannelById(String channelId) {
+        try {
+            String url = "https://discord.com/api/v10/channels/" + channelId;
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Authorization", gatewayClient.getToken())
+                    .header("Content-Type", "application/json")
+                    .GET()
+                    .build();
+
+            HttpClient client = HttpClient.newHttpClient();
+
+            return Mono.fromCallable(() -> {
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    JsonElement jsonElement = JsonParser.parseString(response.body());
+                    return jsonElement.getAsJsonObject();
+                } else {
+                    throw new RuntimeException("Failed to fetch channel: HTTP " + response.statusCode());
+                }
+            });
+        } catch (Exception e) {
+            return Mono.error(e);
+        }
+    }
+
+
     public Mono<Void> sendDm(String userId, String content) {
         return Mono.fromFuture(dmService.createDmChannel(userId))
                 .flatMap(channelId -> sendMessage(channelId, content));
@@ -199,8 +258,8 @@ public class UserBotClient {
                 return;
             }
 
-            CommandContext ctx = new CommandContext(event, this);
-            commandManager.handleCommand(cmdName, args, ctx);
+            CommandContext ctx = new CommandContext(args, event, this);
+            commandManager.handleCommand(cmdName, ctx);
         });
     }
 

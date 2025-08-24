@@ -14,13 +14,3 @@ repositories {
     maven { url = uri("https://maven.lavalink.dev/releases") }
 }
 
-
-tasks.jar {
-    manifest {
-        attributes["Main-Class"] = "com.github.imagineforgee.bot.Main"
-    }
-    from({
-        configurations.runtimeClasspath.get().filter { it.name.endsWith("jar") }.map { zipTree(it) }
-    })
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}

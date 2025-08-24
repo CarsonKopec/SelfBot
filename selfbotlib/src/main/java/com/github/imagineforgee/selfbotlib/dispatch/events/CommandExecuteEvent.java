@@ -26,7 +26,10 @@ public class CommandExecuteEvent implements Event {
     }
 
     public String getGuildId() {
-        return data.get("guildId").getAsString();
+        if (data.has("guildId") && !data.get("guildId").isJsonNull()) {
+            return data.get("guildId").getAsString();
+        }
+        return "";
     }
 
     public String getContextId() {

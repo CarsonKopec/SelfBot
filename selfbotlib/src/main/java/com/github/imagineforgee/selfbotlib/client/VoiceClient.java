@@ -1,5 +1,6 @@
 package com.github.imagineforgee.selfbotlib.client;
 
+import com.github.imagineforgee.selfbotlib.commands.CommandContext;
 import com.github.imagineforgee.selfbotlib.dispatch.events.VoiceServerUpdateEvent;
 import com.github.imagineforgee.selfbotlib.dispatch.events.VoiceStateUpdateEvent;
 import com.github.imagineforgee.selfbotlib.gateway.GatewayClient;
@@ -15,6 +16,7 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.goterl.lazysodium.LazySodiumJava;
 import com.goterl.lazysodium.SodiumJava;
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import reactor.core.publisher.Flux;
@@ -27,10 +29,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.URI;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -66,6 +65,14 @@ public class VoiceClient {
         setupReactiveEventHandling();
         setupHeartbeatHandling();
         setupVoiceMessageHandling();
+    }
+
+    private boolean isDmOrGroupChannel(String guildId) {
+        return guildId == null;
+    }
+
+    private String getContextId(String guildId, String channelId) {
+        return isDmOrGroupChannel(guildId) ? channelId : guildId;
     }
 
     public void registerVoiceMode(String modeId, VoiceMode voiceMode) {
@@ -284,7 +291,13 @@ public class VoiceClient {
 
     private boolean shouldProcessEvent(String guildId) {
         VoiceConnectionState state = currentState.get();
-        return state.guildId == null || state.guildId.equals(guildId);
+        String currentContext = getContextId(state.guildId, state.channelId);
+        String eventContext = getContextId(guildId, null);
+
+        return currentContext == null ||
+                currentContext.equals(eventContext) ||
+                (state.guildId != null && state.guildId.equals(guildId)) ||
+                (isDmOrGroupChannel(guildId) && isDmOrGroupChannel(state.guildId));
     }
 
     private VoiceConnectionState updateStateFromServerEvent(VoiceServerUpdateEvent event) {
@@ -317,13 +330,15 @@ public class VoiceClient {
             return;
         }
 
-        System.out.println("[Voice] Attempting connection with state: " + state);
+        String channelType = isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
+        System.out.println("[Voice] Attempting " + channelType + " connection with state: " + state);
+
         connectToVoiceWebSocket(state)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
-                        success -> System.out.println("[Voice] Connection established successfully"),
+                        success -> System.out.println("[Voice] " + channelType + " connection established successfully"),
                         error -> {
-                            System.err.println("[Voice] Connection failed: " + error.getMessage());
+                            System.err.println("[Voice] " + channelType + " connection failed: " + error.getMessage());
                             isConnecting.set(false);
                         }
                 );
@@ -338,12 +353,13 @@ public class VoiceClient {
             try {
                 cleanup();
                 URI uri = new URI("wss://" + state.endpoint + "/?v=4");
-                System.out.println("[Voice] Connecting to: " + uri);
+                String channelType = isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
+                System.out.println("[Voice] Connecting to " + channelType + " voice: " + uri);
 
                 voiceSocket = new WebSocketClient(uri) {
                     @Override
                     public void onOpen(ServerHandshake handshake) {
-                        System.out.println("[Voice] WebSocket connected");
+                        System.out.println("[Voice] WebSocket connected (" + channelType + ")");
                         isConnecting.set(false);
                         isConnected.set(true);
                         sendVoiceIdentify(state);
@@ -361,7 +377,7 @@ public class VoiceClient {
 
                     @Override
                     public void onClose(int code, String reason, boolean remote) {
-                        System.out.println("[Voice] Disconnected: " + code + " - " + reason);
+                        System.out.println("[Voice] Disconnected (" + channelType + "): " + code + " - " + reason);
                         isConnected.set(false);
                         isConnecting.set(false);
                         initialized.set(false);
@@ -373,7 +389,7 @@ public class VoiceClient {
 
                     @Override
                     public void onError(Exception ex) {
-                        System.err.println("[Voice] WebSocket error: " + ex.getMessage());
+                        System.err.println("[Voice] WebSocket error (" + channelType + "): " + ex.getMessage());
                         isConnected.set(false);
                         isConnecting.set(false);
                     }
@@ -459,7 +475,8 @@ public class VoiceClient {
         VoiceConnectionState newState = state.withVoiceReady(ssrc, ip, port);
         currentState.set(newState);
 
-        System.out.println("[Voice] Voice READY - SSRC: " + ssrc + ", IP: " + ip + ", Port: " + port);
+        String channelType = isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
+        System.out.println("[Voice] " + channelType + " Voice READY - SSRC: " + ssrc + ", IP: " + ip + ", Port: " + port);
 
         performUdpDiscovery(ip, port, ssrc)
                 .subscribeOn(Schedulers.boundedElastic())
@@ -523,7 +540,13 @@ public class VoiceClient {
         JsonObject p = new JsonObject();
         p.addProperty("op", 4);
         JsonObject d = new JsonObject();
-        d.addProperty("guild_id", guildId);
+
+        if (isDmOrGroupChannel(guildId)) {
+            d.add("guild_id", null);
+        } else {
+            d.addProperty("guild_id", guildId);
+        }
+
         d.addProperty("channel_id", channelId);
         d.addProperty("self_mute", false);
         d.addProperty("self_deaf", false);
@@ -531,8 +554,13 @@ public class VoiceClient {
         return p;
     }
 
+    public Mono<Void> joinAndConnect(String channelId) {
+        return joinAndConnect(null, channelId);
+    }
+
     public Mono<Void> joinAndConnect(String guildId, String channelId) {
-        System.out.println("[Voice] Joining voice channel: " + channelId);
+        String channelType = isDmOrGroupChannel(guildId) ? "DM/Group" : "Guild";
+        System.out.println("[Voice] Joining " + channelType + " voice channel: " + channelId);
 
         VoiceConnectionState base = new VoiceConnectionState().withTargetChannel(guildId, channelId);
         currentState.set(base);
@@ -542,12 +570,23 @@ public class VoiceClient {
 
         Mono<VoiceStateUpdateEvent> gotState = botClient.onEvent(VoiceStateUpdateEvent.class)
                 .filter(e -> e.getUserId().equals(botClient.getSelfId()))
-                .filter(e -> guildId.equals(e.getGuildId()))
-                .filter(e -> channelId.equals(e.getChannelId()))
+                .filter(e -> {
+                    if (isDmOrGroupChannel(guildId)) {
+                        return channelId.equals(e.getChannelId()) && e.getGuildId() == null;
+                    } else {
+                        return guildId.equals(e.getGuildId()) && channelId.equals(e.getChannelId());
+                    }
+                })
                 .next();
 
         Mono<VoiceServerUpdateEvent> gotServer = botClient.onEvent(VoiceServerUpdateEvent.class)
-                .filter(e -> guildId.equals(e.getGuildId()))
+                .filter(e -> {
+                    if (isDmOrGroupChannel(guildId)) {
+                        return e.getGuildId() == null || channelId.equals(e.getGuildId());
+                    } else {
+                        return guildId.equals(e.getGuildId());
+                    }
+                })
                 .next();
 
         return sendJoin.then(Mono.zip(gotState, gotServer))
@@ -589,13 +628,28 @@ public class VoiceClient {
         }
     }
 
+    public Mono<Void> leaveVoice() {
+        VoiceConnectionState state = currentState.get();
+        if (isDmOrGroupChannel(state.guildId)) {
+            return leaveVoice(null);
+        } else {
+            return leaveVoice(state.guildId);
+        }
+    }
+
     public Mono<Void> leaveVoice(String guildId) {
         return disconnect()
                 .then(Mono.fromRunnable(() -> {
                     JsonObject payload = new JsonObject();
                     payload.addProperty("op", 4);
                     JsonObject d = new JsonObject();
-                    d.addProperty("guild_id", guildId);
+
+                    if (isDmOrGroupChannel(guildId)) {
+                        d.add("guild_id", null);
+                    } else {
+                        d.addProperty("guild_id", guildId);
+                    }
+
                     d.add("channel_id", null);
                     d.addProperty("self_mute", false);
                     d.addProperty("self_deaf", false);
@@ -616,19 +670,7 @@ public class VoiceClient {
             cleanup();
         });
     }
-
-
-    public void playTrack(String url) {
-        VoiceMode activeMode = getActiveVoiceMode();
-        System.out.println(activeVoiceModeId.get());
-        if (activeMode != null && isConnected.get()) {
-            System.out.println("[Voice] Delegating play to active VoiceMode: " + activeVoiceModeId.get());
-            activeMode.start(url);
-        } else {
-            System.err.println("[Voice] Cannot play - not connected or no active VoiceMode");
-        }
-    }
-
+    
     public void stop() {
         VoiceMode activeVoice = getActiveVoiceMode();
         if (activeVoice != null) {
@@ -646,7 +688,10 @@ public class VoiceClient {
     public Mono<Void> debugStatus() {
         return Mono.fromRunnable(() -> {
             VoiceConnectionState state = currentState.get();
+            String channelType = isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
+
             System.out.println("[Voice] === DEBUG STATUS ===");
+            System.out.println("[Voice] Channel Type: " + channelType);
             System.out.println("[Voice] Connected: " + isConnected.get());
             System.out.println("[Voice] Connecting: " + isConnecting.get());
             System.out.println("[Voice] State: " + state);
@@ -665,7 +710,13 @@ public class VoiceClient {
         JsonObject identify = new JsonObject();
         identify.addProperty("op", 0);
         JsonObject data = new JsonObject();
-        data.addProperty("server_id", state.guildId);
+
+        if (isDmOrGroupChannel(state.guildId)) {
+            data.addProperty("server_id", state.channelId);
+        } else {
+            data.addProperty("server_id", state.guildId);
+        }
+
         data.addProperty("user_id", botClient.getSelfId());
         data.addProperty("session_id", state.sessionId);
         data.addProperty("token", state.token);
@@ -712,7 +763,8 @@ public class VoiceClient {
         }
 
         VoiceConnectionState state = currentState.get();
-        System.out.println("[Voice] Received encryption key, initializing voice");
+        String channelType = isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
+        System.out.println("[Voice] Received encryption key for " + channelType + " channel, initializing voice");
 
         if (lazySodium == null) {
             lazySodium = new LazySodiumJava(new SodiumJava());
@@ -721,14 +773,14 @@ public class VoiceClient {
         try {
             InetAddress address = InetAddress.getByName(state.voiceServerIp);
             udpStreamer = new OpusUdpStreamer(lazySodium, udp, address, state.voiceServerPort, state.ssrc, secretKey, isConnected);
-            System.out.println("[Voice] UDP Streamer initialized");
+            System.out.println("[Voice] UDP Streamer initialized for " + channelType + " channel");
 
             VoiceMode activeVoice = getActiveVoiceMode();
             if (activeVoice != null) {
                 activeVoice.setUdpStreamer(udpStreamer);
             }
             initialized.set(true);
-            System.out.println("[Voice] Voice connection fully established");
+            System.out.println("[Voice] " + channelType + " voice connection fully established");
         } catch (Exception e) {
             System.err.println("[Voice] Failed to initialize voice streamer: " + e.getMessage());
         }
@@ -762,9 +814,9 @@ public class VoiceClient {
         payload.add("d", data);
         voiceSocket.send(payload.toString());
 
-        System.out.println("[Voice] Set speaking: " + (bitmask != 0 ? bitmask : "off") + " (" + Arrays.toString(flags) + ")");
+        String channelType = isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
+        System.out.println("[Voice] Set speaking for " + channelType + " channel: " + (bitmask != 0 ? bitmask : "off") + " (" + Arrays.toString(flags) + ")");
     }
-
 
     private void cleanup() {
         if (voiceSocket != null && voiceSocket.isOpen()) {
@@ -795,6 +847,17 @@ public class VoiceClient {
         }
     }
 
+    public boolean isInDmOrGroupChannel() {
+        VoiceConnectionState state = currentState.get();
+        return isDmOrGroupChannel(state.guildId);
+    }
+
+    public String getCurrentChannelType() {
+        VoiceConnectionState state = currentState.get();
+        return isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
+    }
+
+    // Getters
     public AtomicBoolean getIsConnected() {
         return isConnected;
     }

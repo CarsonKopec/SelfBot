@@ -16,11 +16,15 @@ public class CommandManager {
 
     public void registerCommands(List<CommandInfo> commandList) {
         for (CommandInfo cmd : commandList) {
-            commands.put(cmd.getName(), cmd);
+            String key = cmd.getGroups().isEmpty()
+                    ? cmd.getName()
+                    : cmd.getGroups().getFirst() + ":" + cmd.getName();
+
+            commands.put(key.toLowerCase(), cmd);
         }
     }
 
-    public void handleCommand(String commandName, String args, CommandContext context) {
+    public void handleCommand(String rawCommand, CommandContext context) {
         String userId  = context.getAuthorId();
         String guildId = context.getGuildId();
         EventDispatcher dispatcher = context.getBot().getDispatcher();
@@ -31,7 +35,7 @@ public class CommandManager {
         JsonObject commandData = new JsonObject();
         commandData.addProperty("userId", userId);
         commandData.addProperty("guildId", guildId);
-        commandData.addProperty("commandName", commandName);
+        commandData.addProperty("commandName", rawCommand);
         commandData.addProperty("contextId", contextId);
 
         JsonObject simulatedPayload = new JsonObject();
@@ -40,22 +44,31 @@ public class CommandManager {
 
         dispatcher.dispatch(simulatedPayload);
 
-        CommandInfo cmd = commands.get(commandName);
+        String lookupKey = rawCommand.toLowerCase();
+        CommandInfo cmd = commands.get(lookupKey);
+
         if (cmd == null) {
-            context.reply("Unknown command: " + commandName);
+            context.reply("❌ Unknown command: " + rawCommand);
             return;
         }
 
         try {
             Object cmdInstance = cmd.getCommandClass().getDeclaredConstructor().newInstance();
-            CommandArgs parsedArgs = new CommandArgs(args);
+
+            String[] parts = lookupKey.split(":");
+            String group = parts.length > 1 ? parts[0] : "general";
+            String action = parts.length > 1 ? parts[1] : lookupKey;
+
+            context.setGroup(group);
+            context.setAction(action);
+
             cmd.getCommandClass()
-                    .getMethod("execute", CommandArgs.class, CommandContext.class)
-                    .invoke(cmdInstance, parsedArgs, context);
+                    .getMethod("execute", CommandContext.class)
+                    .invoke(cmdInstance, context);
 
         } catch (NoSuchMethodException | IllegalAccessException | InstantiationException | InvocationTargetException e) {
             e.printStackTrace();
-            context.reply("Failed to execute command: " + commandName);
+            context.reply("❌ Failed to execute command: " + rawCommand);
         }
     }
 }
