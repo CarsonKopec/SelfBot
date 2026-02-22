@@ -101,17 +101,17 @@ public class UserBotClient {
                 });
 
         dispatcher.registerParser("PRIVATE_CHANNEL_CREATE", DmChannelCreateEvent::new);
-//        this.onEvent(DmChannelCreateEvent.class)
-//                .subscribe(evt -> {
-//                    JsonArray data = evt.getRecipients();
-//					for (JsonElement el : data) {
-//                        JsonObject user = el.getAsJsonObject();
-//                        String userId = user.get("id").getAsString();
-//                        String channelId = evt.getChannelId();
-//
-//                        VoiceStateRegistry.update(userId, channelId);
-//                    }
-//        		});
+        this.onEvent(DmChannelCreateEvent.class)
+                .subscribe(evt -> {
+                    JsonArray data = evt.getRecipients();
+					for (JsonElement el : data) {
+                        JsonObject user = el.getAsJsonObject();
+                        String userId = user.get("id").getAsString();
+                        String channelId = evt.getChannelId();
+
+                        VoiceStateRegistry.update(userId, channelId);
+                    }
+        		});
 
         dispatcher.registerParser("MESSAGE_CREATE", MessageCreateEvent::new);
         dispatcher.registerParser("COMMAND_EXECUTE", CommandExecuteEvent::new);
@@ -205,7 +205,7 @@ public class UserBotClient {
     public Mono<JsonObject> getChannelById(String channelId) {
         try {
             String url = "https://discord.com/api/v10/channels/" + channelId;
-
+            System.out.println("Fetching channel: " + channelId);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Authorization", gatewayClient.getToken())
@@ -228,7 +228,6 @@ public class UserBotClient {
             return Mono.error(e);
         }
     }
-
 
     public Mono<Void> sendDm(String userId, String content) {
         return Mono.fromFuture(dmService.createDmChannel(userId))

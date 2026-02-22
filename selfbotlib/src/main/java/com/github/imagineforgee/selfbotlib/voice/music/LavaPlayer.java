@@ -21,6 +21,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.Queue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class LavaPlayer implements MusicMode {
     private final AudioPlayerManager playerManager;
@@ -29,6 +30,7 @@ public class LavaPlayer implements MusicMode {
     private VoiceClient voiceClient;
     private final TrackQueue queue;
     private final TrackScheduler scheduler;
+    private final AtomicBoolean isStreaming = new AtomicBoolean(false);
 
     public LavaPlayer(OpusUdpStreamer streamer) {
         this.playerManager = new DefaultAudioPlayerManager();
@@ -52,7 +54,7 @@ public class LavaPlayer implements MusicMode {
     @Override
     public void start(String url, CommandContext ctx) {
         System.out.println("[Voice] Loading track: " + url);
-        stopStreaming();
+        lavaPlayer.stopTrack();
         String key = ctx.getGuildId() != null ? ctx.getGuildId() : "group:" + ctx.getChannelId();
         playerManager.loadItemOrdered(key, url, new AudioLoadResultHandler() {
             @Override
@@ -83,29 +85,48 @@ public class LavaPlayer implements MusicMode {
     }
 
     public void startAudioStream() {
-        System.out.println("[Voice] Starting audio stream");
-
-        OpusUdpStreamer udpStreamer = voiceClient.getUdpStreamer();
-        if (udpStreamer == null) {
-            System.err.println("[LavaPlayer] Cannot start audio stream: streamer not set in VoiceClient");
+        if (!isStreaming.compareAndSet(false, true)) {
+            System.out.println("[LavaPlayer] Already streaming, ignoring duplicate call");
             return;
         }
 
-        stopStreaming();
+        OpusUdpStreamer udpStreamer = voiceClient.getUdpStreamer();
+        if (udpStreamer == null) {
+            System.err.println("[LavaPlayer] Cannot start audio stream: streamer not ready");
+            isStreaming.set(false);
+            return;
+        }
 
-        Flux<byte[]> opusFrames = Flux.interval(Duration.ofMillis(20))
-                .onBackpressureDrop()
-                .takeWhile(tick -> voiceClient.getIsConnected().get())
-                .flatMap(tick -> {
-                    AudioFrame frame = lavaPlayer.provide();
-                    if (frame != null && frame.getData() != null && frame.getData().length > 0) {
-                        return Mono.just(frame.getData());
+        streamer = udpStreamer;
+        int[] frameCount = {0};
+
+        Flux<byte[]> opusFrames = Flux.<byte[]>generate(sink -> {
+            try {
+                AudioFrame frame = lavaPlayer.provide(1000, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (frame != null && !frame.isTerminator()) {
+                    frameCount[0]++;
+                    if (frameCount[0] % 50 == 0) {
+                        System.out.println("[LavaPlayer] Frames sent: " + frameCount[0]);
                     }
-                    return Mono.empty();
-                });
+                    sink.next(frame.getData());
+                } else {
+                    System.out.println("[LavaPlayer] Null/terminator frame, player playing: " + (lavaPlayer.getPlayingTrack() != null));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                sink.complete();
+            } catch (Exception e) {
+                System.err.println("[LavaPlayer] Frame error: " + e.getMessage());
+                sink.complete();
+            }
+        }).doFinally(signal -> {
+            System.out.println("[LavaPlayer] Stream ended: " + signal + ", total frames: " + frameCount[0]);
+            isStreaming.set(false);
+        });
 
         voiceClient.setSpeaking(SpeakingFlag.MICROPHONE);
         udpStreamer.start(opusFrames);
+        System.out.println("[LavaPlayer] Stream started");
     }
 
 
@@ -113,6 +134,7 @@ public class LavaPlayer implements MusicMode {
     public void stop() {
         lavaPlayer.stopTrack();
         stopStreaming();
+        isStreaming.set(false);
         voiceClient.setSpeaking();
     }
 
@@ -144,7 +166,6 @@ public class LavaPlayer implements MusicMode {
     private void stopStreaming() {
         if (streamer != null) {
             streamer.stop();
-            streamer = null;
         }
     }
 

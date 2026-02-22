@@ -14,9 +14,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
-import com.goterl.lazysodium.LazySodiumJava;
-import com.goterl.lazysodium.SodiumJava;
-import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import reactor.core.publisher.Flux;
@@ -24,6 +21,9 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -56,8 +56,9 @@ public class VoiceClient {
 
     private volatile WebSocketClient voiceSocket;
     private volatile DatagramSocket udp;
-    private LazySodiumJava lazySodium;
     private OpusUdpStreamer udpStreamer;
+
+    private volatile String encryptionMode = "aead_xchacha20_poly1305_rtpsize";
 
     public VoiceClient(UserBotClient botClient) {
         this.botClient = botClient;
@@ -466,10 +467,28 @@ public class VoiceClient {
         }
     }
 
+
     private void handleVoiceReady(JsonObject d) {
         int ssrc = d.get("ssrc").getAsInt();
         String ip = d.get("ip").getAsString();
         int port = d.get("port").getAsInt();
+
+        if (d.has("modes")) {
+            List<String> preferred = List.of(
+                    "aead_aes256_gcm_rtpsize",
+                    "aead_xchacha20_poly1305_rtpsize"
+            );
+            d.getAsJsonArray("modes").forEach(m -> {
+                String mode = m.getAsString();
+                for (String p : preferred) {
+                    if (p.equals(mode)) {
+                        encryptionMode = p;
+                        return;
+                    }
+                }
+            });
+        }
+        System.out.println("[Voice] Selected encryption mode: " + encryptionMode);
 
         VoiceConnectionState state = currentState.get();
         VoiceConnectionState newState = state.withVoiceReady(ssrc, ip, port);
@@ -748,12 +767,29 @@ public class VoiceClient {
         JsonObject address = new JsonObject();
         address.addProperty("address", ip);
         address.addProperty("port", port);
-        address.addProperty("mode", "xsalsa20_poly1305");
+        address.addProperty("mode", encryptionMode);
         data.add("data", address);
         payload.add("d", data);
 
         voiceSocket.send(payload.toString());
         System.out.println("[Voice] Sent SELECT_PROTOCOL");
+    }
+
+    private void extractAndLoad(String libName) throws Exception {
+        InputStream is = getClass().getClassLoader().getResourceAsStream("natives/" + libName);
+        if (is == null) throw new RuntimeException(libName + " not found in resources/natives/");
+
+        File tempFile = File.createTempFile(libName.replace(".dll", ""), ".dll");
+        tempFile.deleteOnExit();
+
+        try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) != -1) fos.write(buf, 0, n);
+        }
+
+        System.load(tempFile.getAbsolutePath());
+        System.out.println("[Voice] Loaded: " + libName);
     }
 
     private void handleSessionDescription(JsonArray keyArray) {
@@ -766,13 +802,9 @@ public class VoiceClient {
         String channelType = isDmOrGroupChannel(state.guildId) ? "DM/Group" : "Guild";
         System.out.println("[Voice] Received encryption key for " + channelType + " channel, initializing voice");
 
-        if (lazySodium == null) {
-            lazySodium = new LazySodiumJava(new SodiumJava());
-        }
-
         try {
             InetAddress address = InetAddress.getByName(state.voiceServerIp);
-            udpStreamer = new OpusUdpStreamer(lazySodium, udp, address, state.voiceServerPort, state.ssrc, secretKey, isConnected);
+            udpStreamer = new OpusUdpStreamer(udp, address, state.voiceServerPort, state.ssrc, secretKey, isConnected);
             System.out.println("[Voice] UDP Streamer initialized for " + channelType + " channel");
 
             VoiceMode activeVoice = getActiveVoiceMode();

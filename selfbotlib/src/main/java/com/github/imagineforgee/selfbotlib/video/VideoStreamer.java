@@ -1,6 +1,5 @@
 package com.github.imagineforgee.selfbotlib.video;
 
-import com.goterl.lazysodium.LazySodiumJava;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Scheduler;
@@ -19,17 +18,14 @@ public class VideoStreamer {
     private final InetAddress address;
     private final int port;
     private final int ssrc;
-    private final LazySodiumJava sodium;
     private final byte[] secretKey;
     private Disposable stream;
 
-    public VideoStreamer(DatagramSocket udp, InetAddress address, int port, int ssrc,
-                         LazySodiumJava sodium, byte[] secretKey) {
+    public VideoStreamer(DatagramSocket udp, InetAddress address, int port, int ssrc, byte[] secretKey) {
         this.udp = udp;
         this.address = address;
         this.port = port;
         this.ssrc = ssrc;
-        this.sodium = sodium;
         this.secretKey = secretKey;
     }
 
@@ -104,11 +100,6 @@ public class VideoStreamer {
             byte[] nonce = new byte[24];
             System.arraycopy(rtp, 0, nonce, 0, 12);
             byte[] encrypted = new byte[rtp.length - 12 + 16];
-            if (!sodium.cryptoSecretBoxEasy(encrypted, Arrays.copyOfRange(rtp, 12, rtp.length),
-                    rtp.length - 12, nonce, secretKey)) {
-                System.err.println("[VideoStreamer] Encryption failed.");
-                return;
-            }
             byte[] packet = new byte[12 + encrypted.length];
             System.arraycopy(rtp, 0, packet, 0, 12);
             System.arraycopy(encrypted, 0, packet, 12, encrypted.length);

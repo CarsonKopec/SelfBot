@@ -7,6 +7,7 @@ version = "0.0.1"
 var opusVersions = "1.1.1"
 
 repositories {
+    mavenLocal()
     mavenCentral()
     maven { url = uri("https://dl.cloudsmith.io/public/clawsoftstudios/purffectlib/maven/") }
     maven { url = uri("https://m2.dv8tion.net/releases") }
@@ -20,8 +21,8 @@ dependencies {
     implementation("org.slf4j:slf4j-simple:2.0.7")
     implementation("io.projectreactor:reactor-core:3.8.0-M4")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.clawsoftstudios.purrfectlib:javautils:0.1.1")
-    implementation("com.goterl:lazysodium-java:5.2.0")
+    implementation("com.clawsoftstudios.purrfectlib:javautils:${rootProject.ext["purrfectlib_version"]}")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78")
     implementation("net.java.dev.jna:jna:5.17.0")
     implementation("dev.arbjerg:lavaplayer:2.2.4")
     implementation("dev.lavalink.youtube:common:1.13.3")

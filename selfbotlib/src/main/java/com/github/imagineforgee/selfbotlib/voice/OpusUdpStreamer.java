@@ -1,6 +1,5 @@
 package com.github.imagineforgee.selfbotlib.voice;
 
-import com.goterl.lazysodium.LazySodiumJava;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
@@ -13,18 +12,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class OpusUdpStreamer {
-    private final LazySodiumJava sodium;
     private final DatagramSocket udp;
     private final InetAddress address;
     private final int port;
     private final int ssrc;
     private final byte[] secretKey;
     private final AtomicBoolean isConnected;
+    private final AtomicInteger nonceCounter = new AtomicInteger(0);
     private Disposable stream;
 
-    public OpusUdpStreamer(LazySodiumJava sodium, DatagramSocket udp, InetAddress address, int port,
+    public OpusUdpStreamer(DatagramSocket udp, InetAddress address, int port,
                            int ssrc, byte[] secretKey, AtomicBoolean isConnected) {
-        this.sodium = sodium;
         this.udp = udp;
         this.address = address;
         this.port = port;
@@ -37,11 +35,13 @@ public class OpusUdpStreamer {
         AtomicInteger seq = new AtomicInteger(0);
         AtomicInteger ts = new AtomicInteger((int) (System.currentTimeMillis() & 0xFFFFFFFF));
 
-        stop(); // cancel existing stream
+        stop();
 
         this.stream = opusFrames
                 .takeWhile(frame -> isConnected.get())
-                .subscribeOn(Schedulers.boundedElastic()) // run async
+                .zipWith(Flux.interval(Duration.ofMillis(20)))
+                .map(tuple -> tuple.getT1())
+                .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(frame -> {
                     int sequence = seq.getAndUpdate(s -> (s + 1) & 0xFFFF);
                     int timestamp = ts.getAndUpdate(t -> (t + 960) & 0xFFFFFFFF);
@@ -49,22 +49,25 @@ public class OpusUdpStreamer {
                 });
     }
 
-
     private void sendFrame(int sequence, int timestamp, byte[] opusFrame) {
         try {
             byte[] rtp = createRtpHeader(sequence, timestamp);
+
+            int counter = nonceCounter.getAndIncrement();
             byte[] nonce = new byte[24];
-            System.arraycopy(rtp, 0, nonce, 0, 12);
-            byte[] encrypted = new byte[opusFrame.length + 16];
+            nonce[0] = (byte) (counter >> 24);
+            nonce[1] = (byte) (counter >> 16);
+            nonce[2] = (byte) (counter >> 8);
+            nonce[3] = (byte) counter;
+            byte[] encrypted = SodiumEncryption.encrypt(opusFrame, rtp, nonce, secretKey);
 
-            if (!sodium.cryptoSecretBoxEasy(encrypted, opusFrame, opusFrame.length, nonce, secretKey)) {
-                System.err.println("[Streamer] Encryption failed.");
-                return;
-            }
-
-            byte[] packet = new byte[rtp.length + encrypted.length];
-            System.arraycopy(rtp, 0, packet, 0, 12);
-            System.arraycopy(encrypted, 0, packet, 12, encrypted.length);
+            byte[] packet = new byte[rtp.length + encrypted.length + 4];
+            System.arraycopy(rtp, 0, packet, 0, rtp.length);
+            System.arraycopy(encrypted, 0, packet, rtp.length, encrypted.length);
+            packet[packet.length - 4] = nonce[0];
+            packet[packet.length - 3] = nonce[1];
+            packet[packet.length - 2] = nonce[2];
+            packet[packet.length - 1] = nonce[3];
 
             udp.send(new DatagramPacket(packet, packet.length, address, port));
         } catch (Exception e) {
