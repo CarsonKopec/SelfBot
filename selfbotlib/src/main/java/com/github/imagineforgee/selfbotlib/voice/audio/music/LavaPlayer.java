@@ -1,12 +1,11 @@
-package com.github.imagineforgee.selfbotlib.voice.music;
+package com.github.imagineforgee.selfbotlib.voice.audio.music;
 
 import com.github.imagineforgee.selfbotlib.client.VoiceClient;
 import com.github.imagineforgee.selfbotlib.commands.CommandContext;
 import com.github.imagineforgee.selfbotlib.voice.OpusUdpStreamer;
 import com.github.imagineforgee.selfbotlib.voice.SpeakingFlag;
-import com.github.imagineforgee.selfbotlib.voice.VoiceMode;
-import com.github.imagineforgee.selfbotlib.voice.music.track.TrackQueue;
-import com.github.imagineforgee.selfbotlib.voice.music.track.TrackScheduler;
+import com.github.imagineforgee.selfbotlib.voice.audio.music.track.TrackQueue;
+import com.github.imagineforgee.selfbotlib.voice.audio.music.track.TrackScheduler;
 import com.sedmelluq.discord.lavaplayer.format.StandardAudioDataFormats;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
@@ -17,9 +16,7 @@ import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.playback.AudioFrame;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
 

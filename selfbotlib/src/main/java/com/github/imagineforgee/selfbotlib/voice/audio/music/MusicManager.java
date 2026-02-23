@@ -1,4 +1,4 @@
-package com.github.imagineforgee.selfbotlib.voice.music;
+package com.github.imagineforgee.selfbotlib.voice.audio.music;
 
 import com.github.imagineforgee.selfbotlib.client.VoiceClient;
 import com.github.imagineforgee.selfbotlib.commands.CommandContext;
@@ -11,7 +11,7 @@ public class MusicManager {
     VoiceClient voiceClient;
     public void playTrack(String url, CommandContext ctx) {
         voiceClient = ctx.getBot().getVoiceClient();
-        VoiceMode activeMode = voiceClient.getActiveVoiceMode();
+        VoiceMode activeMode = voiceClient.getActiveVoiceModeModel();
         if (activeMode != null && voiceClient.getIsConnected().get()) {
             System.out.println("[Voice] Delegating play to active VoiceMode: " + voiceClient.getActiveVoiceModeId());
             activeMode.start(url, ctx);
@@ -21,12 +21,12 @@ public class MusicManager {
     }
 
     public void skip() {
-        VoiceMode activeVoice = voiceClient.getActiveVoiceMode();
+        VoiceMode activeVoice = voiceClient.getActiveVoiceModeModel();
         activeVoice.skip();
     }
 
     public void clear() {
-        VoiceMode activeVoice = voiceClient.getActiveVoiceMode();
+        VoiceMode activeVoice = voiceClient.getActiveVoiceModeModel();
         activeVoice.clear();
     }
 

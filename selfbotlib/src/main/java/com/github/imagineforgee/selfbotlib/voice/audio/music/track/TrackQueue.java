@@ -1,4 +1,4 @@
-package com.github.imagineforgee.selfbotlib.voice.music.track;
+package com.github.imagineforgee.selfbotlib.voice.audio.music.track;
 
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 

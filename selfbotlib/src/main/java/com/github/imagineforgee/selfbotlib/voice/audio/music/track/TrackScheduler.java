@@ -1,6 +1,6 @@
-package com.github.imagineforgee.selfbotlib.voice.music.track;
+package com.github.imagineforgee.selfbotlib.voice.audio.music.track;
 
-import com.github.imagineforgee.selfbotlib.voice.music.LavaPlayer;
+import com.github.imagineforgee.selfbotlib.voice.audio.music.LavaPlayer;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.event.AudioEventAdapter;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;

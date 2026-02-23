@@ -217,9 +217,14 @@ public class VoiceClient {
         return activeVideoModeId.get();
     }
 
-    public VoiceMode getActiveVoiceMode() {
+    public VoiceMode getActiveVoiceModeModel() {
         String modeId = activeVoiceModeId.get();
         return modeId != null ? voiceModes.get(modeId) : null;
+    }
+
+    public String getActiveVoiceMode() {
+        String modeId = activeVoiceModeId.get();
+        return modeId;
     }
 
     public VideoMode getActiveVideoMode() {
@@ -625,7 +630,7 @@ public class VoiceClient {
     }
 
     private void notifyModesOfChannelJoin(String guildId, String channelId) {
-        VoiceMode activeVoice = getActiveVoiceMode();
+        VoiceMode activeVoice = getActiveVoiceModeModel();
         if (activeVoice != null && isConnected.get()) {
             try {
                 activeVoice.joinChannel(guildId, channelId);
@@ -691,7 +696,7 @@ public class VoiceClient {
     }
     
     public void stop() {
-        VoiceMode activeVoice = getActiveVoiceMode();
+        VoiceMode activeVoice = getActiveVoiceModeModel();
         if (activeVoice != null) {
             System.out.println("[Voice] Stopping active VoiceMode: " + activeVoiceModeId.get());
             activeVoice.stop();
@@ -807,7 +812,7 @@ public class VoiceClient {
             udpStreamer = new OpusUdpStreamer(udp, address, state.voiceServerPort, state.ssrc, secretKey, isConnected);
             System.out.println("[Voice] UDP Streamer initialized for " + channelType + " channel");
 
-            VoiceMode activeVoice = getActiveVoiceMode();
+            VoiceMode activeVoice = getActiveVoiceModeModel();
             if (activeVoice != null) {
                 activeVoice.setUdpStreamer(udpStreamer);
             }
@@ -865,7 +870,7 @@ public class VoiceClient {
         }
 
         if (initialized.getAndSet(false)) {
-            VoiceMode activeVoice = getActiveVoiceMode();
+            VoiceMode activeVoice = getActiveVoiceModeModel();
             if (activeVoice != null) {
                 activeVoice.shutdown();
             }

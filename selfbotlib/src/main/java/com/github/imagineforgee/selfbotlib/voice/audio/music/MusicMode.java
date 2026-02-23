@@ -1,4 +1,4 @@
-package com.github.imagineforgee.selfbotlib.voice.music;
+package com.github.imagineforgee.selfbotlib.voice.audio.music;
 
 import com.github.imagineforgee.selfbotlib.client.VoiceClient;
 import com.github.imagineforgee.selfbotlib.commands.CommandContext;
